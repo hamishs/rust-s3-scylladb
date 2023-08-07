@@ -5,14 +5,14 @@ use scylla::statement::Consistency;
 use scylla::transport::load_balancing::{DcAwareRoundRobinPolicy, TokenAwarePolicy};
 use scylla::transport::Compression;
 use scylla::{Session, SessionBuilder};
+use std::fs;
 use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 use uuid::Uuid;
-use std::time::Duration;
-use std::fs;
 
 pub struct ScyllaDbService {
     parallelism: usize,
@@ -48,9 +48,9 @@ impl ScyllaDbService {
         info!("ScyllaDbService: Connected to {}", host);
 
         info!("ScyllaDbService: Creating Schema..");
-      
+
         let schema = fs::read_to_string(&schema_file)
-        .expect(("Error Reading Schema File".to_owned() + schema_file.as_str()).as_str());
+            .expect(("Error Reading Schema File".to_owned() + schema_file.as_str()).as_str());
 
         let schema_query = schema.trim().replace("\n", "");
 
@@ -58,14 +58,17 @@ impl ScyllaDbService {
             let query = q.to_owned() + ";";
             if query.len() > 1 {
                 info!("Running Query {}", query);
-                session.query(query, &[]).await.expect("Error creating schema!");
+                session
+                    .query(query, &[])
+                    .await
+                    .expect("Error creating schema!");
             }
-          
         }
 
         if session
             .await_timed_schema_agreement(Duration::from_secs(10))
-            .await.expect("Error Awaiting Schema Creation")
+            .await
+            .expect("Error Awaiting Schema Creation")
         {
             info!("Schema Created!");
         } else {
@@ -88,13 +91,13 @@ impl ScyllaDbService {
             .await
             .expect("Error Creating Prepared Query");
         ps_tr.set_consistency(Consistency::One);
-        
+
         let db_session = Arc::new(session);
         info!("ScyllaDbService: Parallelism {}", db_parallelism);
 
-        let prepared_query = Arc::new(ps);    
-        let ps_traversal = Arc::new(ps_t);    
-        let ps_traversal_relation = Arc::new(ps_tr);    
+        let prepared_query = Arc::new(ps);
+        let ps_traversal = Arc::new(ps_t);
+        let ps_traversal_relation = Arc::new(ps_tr);
 
         ScyllaDbService {
             db_session,
@@ -135,10 +138,7 @@ impl ScyllaDbService {
             }
             None => {
                 session
-                    .execute(
-                        &self.ps_traversal.clone(),
-                        (uuid, direction),
-                    )
+                    .execute(&self.ps_traversal.clone(), (uuid, direction))
                     .await?
             }
         };

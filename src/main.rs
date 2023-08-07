@@ -3,12 +3,12 @@ mod data;
 mod db;
 mod s3;
 
-extern crate serde_json;
 extern crate num_cpus;
+extern crate serde_json;
 
 use crate::config::Config;
-use crate::data::model::get_id_from_url;
-use crate::data::rest_api::TraversalNodeRequest;
+//use crate::data::model::get_id_from_url;
+//use crate::data::rest_api::TraversalNodeRequest;
 use crate::db::scylladb::ScyllaDbService;
 use crate::s3::s3::read_file;
 use actix_web::error::ErrorInternalServerError;
@@ -16,10 +16,10 @@ use actix_web::middleware::Logger;
 use actix_web::web::Json;
 use actix_web::{get, post, web, web::Data, App, Error, HttpResponse, HttpServer};
 use color_eyre::Result;
-use data::model::{Node, Relation, TraversalNode};
-use data::rest_api::{GetNodeRequest, IngestionRequest};
-use data::source_model::{Relation as SourceRelation, Nodes};
-use db::model::DbNode;
+use data::model::{get_id_from_url, Node, Relation, TraversalNode};
+use data::rest_api::{GetNodeRequest, IngestionRequest, PostNodeRequest, TraversalNodeRequest};
+use data::source_model::{Nodes, Relation as SourceRelation};
+use db::model::{DbNode, DbNodeSimple};
 use futures::future::{BoxFuture, FutureExt};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,19 +36,19 @@ use strum_macros::Display;
 #[derive(Display, Debug)]
 pub enum DIR {
     IN,
-    OUT
+    OUT,
 }
 
 #[derive(Display, Debug)]
 enum REL {
     ISPARENT,
-    ISCHILD
+    ISCHILD,
 }
 
 struct AppState {
     db_svc: ScyllaDbService,
     semaphore: Arc<Semaphore>,
-    region: String
+    region: String,
 }
 
 #[get("/node/{id}")]
@@ -81,13 +81,13 @@ async fn traversal_by_id(
     let id = path.into_inner();
     info!("traversal_by_id: {}", id);
 
-    let result = traversal_recur(
+    let result: Option<TraversalNode> = traversal_recur(
         state,
         id,
         Arc::new(query_data.direction.clone()),
         Arc::new(query_data.relation_type.clone()),
         0,
-        query_data.max_depth
+        query_data.max_depth,
     )
     .await;
 
@@ -105,7 +105,6 @@ fn traversal_recur<'a>(
     max: usize,
 ) -> BoxFuture<'a, Option<TraversalNode>> {
     async move {
-        
         let db_nodes = state
             .db_svc
             .get_node_traversal(&id, &direction, &relation_type)
@@ -115,9 +114,8 @@ fn traversal_recur<'a>(
 
         if depth < max && node.relation_ids.len() > 0 {
             let mut handlers: Vec<JoinHandle<_>> = Vec::new();
-           
-            for id in &node.relation_ids {
 
+            for id in &node.relation_ids {
                 handlers.push(tokio::spawn(traversal_recur(
                     state.clone(),
                     id.to_string(),
@@ -127,17 +125,16 @@ fn traversal_recur<'a>(
                     max,
                 )));
             }
-      
+
             for thread in handlers {
                 let child = thread.await.ok()?;
                 node.relations.push(child?);
             }
         }
-   
+
         Some(node)
     }
     .boxed()
-   
 }
 
 async fn get_node(
@@ -154,6 +151,34 @@ async fn get_node(
     let node = Node::from(db_nodes);
 
     Ok(web::Json(node))
+}
+
+#[post("/node")]
+async fn create_node(
+    payload: web::Json<PostNodeRequest>,
+    state: Data<AppState>,
+) -> Result<HttpResponse, Error> {
+    let now = Instant::now();
+    info!("create_node: {:?}", payload);
+
+    // create the node from the payload data
+    let node = DbNodeSimple {
+        uuid: payload.uuid,
+        name: payload.name.clone(),
+        node_type: payload.node_type.clone(),
+        url: payload.url.clone(),
+        ingestion_id: payload.ingestion_id.clone(),
+    };
+    let node = DbNode::from_simple(node);
+
+    let result = state.db_svc.save_nodes(vec![node]).await;
+
+    let elapsed = now.elapsed();
+    info!("create_node time: {:.2?}", elapsed);
+    match result {
+        Ok(_) => Ok(HttpResponse::Ok().json(r#"{ "status": "OK"}"#)),
+        Err(e) => Err(ErrorInternalServerError(e)),
+    }
 }
 
 #[post("/ingest")]
@@ -217,10 +242,7 @@ async fn process_file(
     // Get all the nodes from the file in a flat structure and parent relations
     let nodes = process_nodes(&ingestion_id, contents.nodes, relations).await?;
 
-    info!(
-        "Nodes processed, nodes size: {}.Persisting...",
-        nodes.len()
-    );
+    info!("Nodes processed, nodes size: {}.Persisting...", nodes.len());
 
     // persist in DB and wait
     state.db_svc.save_nodes(nodes).await?;
@@ -233,7 +255,6 @@ async fn process_file(
 
     Ok(())
 }
-
 
 fn process_relations(
     ingestion_id: &str,
@@ -252,7 +273,8 @@ fn process_relations(
         );
         acc.entry(source.clone()).or_insert_with(Vec::new).push(rel);
         // the other side
-        let rel_target = Relation::new(ingestion_id.to_owned(), r.type_field.clone(), source, false);
+        let rel_target =
+            Relation::new(ingestion_id.to_owned(), r.type_field.clone(), source, false);
         acc.entry(target).or_insert_with(Vec::new).push(rel_target);
         acc
     });
@@ -323,7 +345,7 @@ fn flatten_nodes(
 
         let id = root.uuid;
         let name = root.name.clone();
-     
+
         db_nodes.push(root);
 
         if parent.is_some() {
@@ -392,14 +414,19 @@ async fn main() -> Result<()> {
         num_cpus, parallel_files, db_parallelism, region
     );
 
-    let db = ScyllaDbService::new(config.db_dc, config.db_url, 
-        db_parallelism, config.schema_file).await;
+    let db = ScyllaDbService::new(
+        config.db_dc,
+        config.db_url,
+        db_parallelism,
+        config.schema_file,
+    )
+    .await;
 
     let sem = Arc::new(Semaphore::new(parallel_files));
     let data = Data::new(AppState {
         db_svc: db,
         semaphore: sem,
-        region
+        region,
     });
 
     info!("Starting server at http://{}:{}/", host, port);
@@ -410,6 +437,7 @@ async fn main() -> Result<()> {
             .service(ingest)
             .service(get_by_id)
             .service(traversal_by_id)
+            .service(create_node)
     })
     .bind(format!("{}:{}", host, port))?
     .workers(num_cpus * 2)
