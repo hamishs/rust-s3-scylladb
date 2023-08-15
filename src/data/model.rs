@@ -2,7 +2,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::DIR;
+use strum_macros::Display;
+
 use crate::db::model::DbNode;
 use crate::db::model::DbRelation;
 
@@ -11,10 +12,22 @@ const NAMESPACE_UUID: Uuid = Uuid::from_bytes([
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ]);
 
+#[derive(Display, Debug)]
+pub enum DIR {
+    IN,
+    OUT,
+}
+
+#[derive(Display, Debug)]
+pub enum REL {
+    ISPARENT,
+    ISCHILD,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub uuid: Uuid,
-    pub ingestion_id: String,
+    pub job_id: String,
     pub name: String,
     pub url: String,
     #[serde(rename = "type")]
@@ -26,14 +39,14 @@ pub struct Node {
 impl Node {
     pub fn new(
         id: Uuid,
-        ingestion_id: String,
+        job_id: String,
         url: String,
         name: String,
         node_type: String,
         attrs: Vec<(String, String)>,
     ) -> Self {
         Self {
-            ingestion_id,
+            job_id,
             uuid: id,
             url,
             name,
@@ -49,7 +62,7 @@ impl Node {
         let attrs = n.tags.as_ref().unwrap_or(&empty);
         let mut node = Node::new(
             n.uuid,
-            n.ingestion_id.clone(),
+            n.job_id.clone(),
             n.url.clone(),
             n.name.clone(),
             n.node_type.clone(),
@@ -62,7 +75,7 @@ impl Node {
                 continue;
             } else {
                 n = db_entries.get(i)?;
-                let outbound = n.direction.clone().unwrap() == DIR::OUT.to_string() ;
+                let outbound = n.direction.clone().unwrap() == DIR::OUT.to_string();
                 let r = Relation::from(
                     n.name.clone(),
                     n.relation.clone().unwrap(),
@@ -118,13 +131,6 @@ impl TraversalNode {
     }
 }
 
-pub fn get_id_from_url(ingestion_id: String, url: String) -> Uuid {
-    let unique_id = ingestion_id + "/" + url.as_str();
-    // unique ID per url
-    let uuid = Uuid::new_v5(&NAMESPACE_UUID, unique_id.as_bytes());
-    uuid
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Relation {
     #[serde(rename = "type")]
@@ -135,16 +141,6 @@ pub struct Relation {
 }
 
 impl Relation {
-    pub fn new(ingestion_id: String, rel_type: String, url: String, outbound: bool) -> Self {
-        let names: Vec<&str> = url.split('/').collect();
-        let name = names[names.len() - 1].to_owned();
-        Self {
-            rel_type,
-            target_name: name,
-            relates_to: get_id_from_url(ingestion_id, url).to_string(),
-            outbound,
-        }
-    }
     pub fn from(name: String, rel_type: String, relates_to: String, outbound: bool) -> Self {
         Self {
             rel_type,

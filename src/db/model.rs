@@ -1,13 +1,7 @@
 use scylla::macros::FromRow;
 use uuid::Uuid;
 
-use crate::{
-    data::{
-        model::{get_id_from_url, Relation},
-        source_model::Tag,
-    },
-    DIR,
-};
+use crate::data::model::{Relation, DIR};
 
 #[derive(Default, Debug, Clone, FromRow)]
 pub struct DbNode {
@@ -16,7 +10,7 @@ pub struct DbNode {
     pub relation: Option<String>,
     pub relates_to: Option<String>,
     pub name: String,
-    pub ingestion_id: String,
+    pub job_id: String,
     pub url: String,
     pub node_type: String,
     pub tags: Option<Vec<(String, String)>>,
@@ -28,7 +22,7 @@ pub struct DbNodeSimple {
     pub name: String,
     pub node_type: String,
     pub url: String,
-    pub ingestion_id: String,
+    pub job_id: String,
 }
 
 #[derive(Default, Debug, Clone, FromRow)]
@@ -42,34 +36,9 @@ pub struct DbRelation {
 }
 
 impl DbNode {
-    pub fn root(
-        ingestion_id: String,
-        url: String,
-        name: String,
-        node_type: String,
-        source_tags: Vec<Tag>,
-    ) -> Self {
-        let id = get_id_from_url(ingestion_id.clone(), url.clone());
-        let tags: Vec<(String, String)> = source_tags
-            .iter()
-            .map(|a| (a.type_field.clone(), a.value.clone()))
-            .collect();
-
-        Self {
-            uuid: id,
-            direction: None,
-            relation: None,
-            relates_to: None,
-            name,
-            ingestion_id,
-            url,
-            node_type,
-            tags: Some(tags),
-        }
-    }
     pub fn relation(
         uuid: Uuid,
-        ingestion_id: String,
+        job_id: String,
         direction: String,
         relation: String,
         relates_to: String,
@@ -81,7 +50,7 @@ impl DbNode {
             relation: Some(relation),
             relates_to: Some(relates_to),
             name: relates_to_name,
-            ingestion_id,
+            job_id,
             url: "".to_owned(),
             node_type: "".to_owned(),
             tags: None,
@@ -94,14 +63,14 @@ impl DbNode {
             relation: None,
             relates_to: None,
             name: node.name.to_owned(),
-            ingestion_id: node.ingestion_id.to_owned(),
+            job_id: node.job_id.to_owned(),
             url: node.url.to_owned(),
             node_type: node.node_type,
             tags: None,
         }
     }
 
-    pub fn from_rel(uuid: Uuid, ingestion_id: String, relation: &Relation) -> Self {
+    pub fn from_rel(uuid: Uuid, job_id: String, relation: &Relation) -> Self {
         let direction = if relation.outbound {
             DIR::OUT.to_string()
         } else {
@@ -113,7 +82,7 @@ impl DbNode {
             relation: Some(relation.rel_type.to_owned()),
             relates_to: Some(relation.relates_to.to_owned()),
             name: relation.target_name.to_owned(),
-            ingestion_id: ingestion_id,
+            job_id,
             url: "".to_owned(),
             node_type: "".to_owned(),
             tags: None,

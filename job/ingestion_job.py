@@ -26,7 +26,7 @@ async def post_request(file):
     data = {
             "ingestion_id": "test",
             "files": [file]
-           }
+        }
     print("Sending " + str(data))
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(url, json = data, headers=headers, timeout=timeout) as resp:

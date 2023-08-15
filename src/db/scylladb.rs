@@ -22,11 +22,11 @@ pub struct ScyllaDbService {
     ps_traversal_relation: Arc<PreparedStatement>,
 }
 
-const INSERT_QUERY: &str = "INSERT INTO graph.nodes (id, direction, relation, relates_to, name, ingestion_id, url, item_type, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+const INSERT_QUERY: &str = "INSERT INTO graph.nodes (id, direction, relation, relates_to, name, job_id, url, item_type, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 const GET_ONE_QUERY: &str =
-    "SELECT id, name, item_type, url, ingestion_id FROM graph.nodes WHERE id = ? and direction = '' and relation = ''";
-const GET_ONE_QUERY_TAGS: &str = "SELECT id, direction, relation, relates_to, name, ingestion_id, url, item_type, tags FROM graph.nodes WHERE id = ? and direction = '' and relation = ''";
-const GET_ONE_QUERY_RELATIONS: &str = "SELECT id, direction, relation, relates_to, name, ingestion_id, url, item_type, tags FROM graph.nodes WHERE id = ?";
+    "SELECT id, name, item_type, url, job_id FROM graph.nodes WHERE id = ? and direction = '' and relation = ''";
+const GET_ONE_QUERY_TAGS: &str = "SELECT id, direction, relation, relates_to, name, job_id, url, item_type, tags FROM graph.nodes WHERE id = ? and direction = '' and relation = ''";
+const GET_ONE_QUERY_RELATIONS: &str = "SELECT id, direction, relation, relates_to, name, job_id, url, item_type, tags FROM graph.nodes WHERE id = ?";
 const GET_ONE_QUERY_DIRECTION: &str = "SELECT id, direction, relation, relates_to, name, item_type FROM graph.nodes WHERE id = ? and direction in ('',?)";
 const GET_ONE_QUERY_DIRECTION_RELATION: &str = "SELECT id, direction, relation, relates_to, name, item_type FROM graph.nodes WHERE id = ? and direction in ('',?) and relation in ('',?)";
 
@@ -224,7 +224,7 @@ impl ScyllaDbService {
                             entry.relation.unwrap_or_default(),
                             entry.relates_to.unwrap_or_default(),
                             entry.name,
-                            entry.ingestion_id,
+                            entry.job_id,
                             entry.url,
                             entry.node_type,
                             entry.tags.unwrap_or_default(),
